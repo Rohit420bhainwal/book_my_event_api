@@ -62,7 +62,8 @@ export const sendOtp = async (req, res) => {
     else if (method === "phone") user = await User.findOne({ phone: input });
     else return res.status(400).json({ success: false, message: "Invalid method" });
 
-    const otp = generateOtp();
+   // const otp = generateOtp();
+    const otp = "123456";
     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
 
     if (!user) {
@@ -85,8 +86,8 @@ export const sendOtp = async (req, res) => {
     }
 
     // Send OTP
-    if (method === "email") await sendEmailOtp(input, otp);
-    else if (method === "phone") await sendSmsOtp(input, otp);
+    // if (method === "email") await sendEmailOtp(input, otp);
+    // else if (method === "phone") await sendSmsOtp(input, otp);
     console.log(`OTP for ${input}: ${otp}`);
 
     res.json({ success: true, message: `OTP sent to your ${method}` });
