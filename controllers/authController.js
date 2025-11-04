@@ -1,4 +1,3 @@
-// controllers/authController.js
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
@@ -8,8 +7,11 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import mongoose from "mongoose";
 
-// Helper: generate 6-digit OTP
+// ----------------------------
+// Helper functions
+// ----------------------------
 const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 // ----------------------------
@@ -48,49 +50,77 @@ const sendSmsOtp = async (phone, otp) => {
   });
 };
 
+
+const uploadDir = path.join(process.cwd(), "uploads");
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+const storage = multer.memoryStorage();
+export const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const filetypes = /jpeg|jpg|png|webp/;
+    const mimetype = filetypes.test(file.mimetype);
+    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
+    if (mimetype && extname) return cb(null, true);
+    cb(new Error("Only .jpg, .jpeg, .png, .webp files are allowed!"));
+  },
+});
+
+const getDeterministicFilename = (userId, originalName) => {
+  const hash = crypto.createHash("md5").update(userId + originalName).digest("hex");
+  return hash + path.extname(originalName);
+};
+
+const saveFileForUser = (userId, buffer, originalName) => {
+  const filename = getDeterministicFilename(userId, originalName);
+  const filepath = path.join(uploadDir, filename);
+  fs.writeFileSync(filepath, buffer);
+  return filename;
+};
+
 // ----------------------------
-// POST /auth/send-otp
+// SEND OTP
 // ----------------------------
 export const sendOtp = async (req, res) => {
   try {
-    const { input, method, phone,password ,name} = req.body;
-
-    if (!input || !method) return res.status(400).json({ success: false, message: "Input and method are required" });
+    const { input, method, phone, password, name } = req.body;
+    if (!input || !method)
+      return res.status(400).json({ success: false, message: "Input and method required" });
 
     let user;
     if (method === "email") user = await User.findOne({ email: input });
     else if (method === "phone") user = await User.findOne({ phone: input });
-    else return res.status(400).json({ success: false, message: "Invalid method" });
 
-   // const otp = generateOtp();
-    const otp = "123456";
-    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
-
-    if (!user) {
-      // New user → create temp record with OTP
-      const newUser = new User({
-        email: method === "email" ? input : undefined,
-        phone,
-        name,
-        password: method === "email" ? await bcrypt.hash(password, 10) : undefined,
-        otp,
-        otpExpiresAt: otpExpiry,
-      });
-      await newUser.save();
-    } else {
-      // Existing user → update OTP
-      user.otp = otp;
-      user.otpExpiresAt = otpExpiry;
-      if (method === "email" && password) user.password = await bcrypt.hash(password, 10);
-      await user.save();
-    }
-
-    // Send OTP
-    // if (method === "email") await sendEmailOtp(input, otp);
-    // else if (method === "phone") await sendSmsOtp(input, otp);
-    console.log(`OTP for ${input}: ${otp}`);
-
-    res.json({ success: true, message: `OTP sent to your ${method}` });
+      // const otp = generateOtp();
+      const otp = "123456";
+      const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
+  
+      if (!user) {
+        // New user → create temp record with OTP
+        const newUser = new User({
+          email: method === "email" ? input : undefined,
+          phone,
+          name,
+          password: method === "email" ? await bcrypt.hash(password, 10) : undefined,
+          otp,
+          otpExpiresAt: otpExpiry,
+        });
+        await newUser.save();
+      } else {
+        // Existing user → update OTP
+        user.otp = otp;
+        user.otpExpiresAt = otpExpiry;
+        if (method === "email" && password) user.password = await bcrypt.hash(password, 10);
+        await user.save();
+      }
+  
+      // Send OTP
+      // if (method === "email") await sendEmailOtp(input, otp);
+      // else if (method === "phone") await sendSmsOtp(input, otp);
+      console.log(`OTP for ${input}: ${otp}`);
+  
+      res.json({ success: true, message: `OTP sent to your ${method}` });
   } catch (error) {
     console.error("sendOtp Error:", error);
     res.status(500).json({ success: false, message: "Server error" });
@@ -98,12 +128,13 @@ export const sendOtp = async (req, res) => {
 };
 
 // ----------------------------
-// POST /auth/verify-otp
+// VERIFY OTP
 // ----------------------------
 export const verifyOtp = async (req, res) => {
   try {
     const { input, otp, method, password } = req.body;
-    if (!input || !otp || !method) return res.status(400).json({ success: false, message: "Missing fields" });
+    if (!input || !otp || !method)
+      return res.status(400).json({ success: false, message: "Missing fields" });
 
     let user;
     if (method === "email") user = await User.findOne({ email: input });
@@ -113,14 +144,15 @@ export const verifyOtp = async (req, res) => {
     if (user.otp !== otp || !user.otpExpiresAt || new Date() > user.otpExpiresAt)
       return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
 
-    // OTP verified → mark as verified
     user.isVerified = true;
     user.otp = undefined;
     user.otpExpiresAt = undefined;
     if (method === "email" && password) user.password = await bcrypt.hash(password, 10);
     await user.save();
 
-    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "7d" });
+    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
+      expiresIn: "7d",
+    });
 
     res.json({
       success: true,
@@ -148,44 +180,14 @@ export const setRole = async (req, res) => {
   res.json({ success: true, message: "Role updated successfully" });
 };
 
-
 // ----------------------------
-// Social login / email login
-// ----------------------------
-export const registerSocial = async (req, res) => {
-  try {
-    const { name, email, phone, provider, socialId } = req.body;
-    if (!provider) return res.status(400).json({ message: "Provider type is required" });
-
-    // Social login (Google / Facebook)
-    let user = await User.findOne({ socialId, provider });
-    if (!user) {
-      user = new User({
-        name,
-        email,
-        phone,
-        provider,
-        socialId,
-        role: "customer",
-      });
-      await user.save();
-    }
-
-    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "7d" });
-    res.status(200).json({ message: "Login successful", token, user });
-  } catch (error) {
-    console.error("registerSocial Error:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-};
-
-// ----------------------------
-// Traditional login with email & password
+// LOGIN
 // ----------------------------
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ message: "Provide email and password" });
+    if (!email || !password)
+      return res.status(400).json({ message: "Provide email and password" });
 
     const user = await User.findOne({ email });
     if (!user) return res.status(404).json({ message: "User not found" });
@@ -193,16 +195,21 @@ export const login = async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
 
-    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "7d" });
+    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
+      expiresIn: "7d",
+    });
 
-    res.status(200).json({
+    res.json({
       message: "Login successful",
       token,
-      user: { id: user._id, name: user.name, email: user.email, 
-              role: user.role ,phone: user.phone,
-              profileImage:user.profileImage,city:user.city
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        phone: user.phone,
       },
-      providerInfo:user.providerInfo,
+      providerInfo: user.providerInfo,
     });
   } catch (error) {
     console.error("Login Error:", error);
@@ -210,106 +217,180 @@ export const login = async (req, res) => {
   }
 };
 
-
 // ----------------------------
-// Provider Onboarding
-// ----------------------------
-const uploadDir = path.join(process.cwd(), "uploads");
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
-// Multer config for multiple images
-const storage = multer.memoryStorage();
-export const upload = multer({
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    const filetypes = /jpeg|jpg|png|webp/;
-    const mimetype = filetypes.test(file.mimetype);
-    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-    if (mimetype && extname) return cb(null, true);
-    cb(new Error("Only .jpg, .jpeg, .png, .webp files are allowed!"));
-  },
-});
-
-// Deterministic filename
-const getDeterministicFilename = (userId, originalName) => {
-  const hash = crypto.createHash("md5").update(userId + originalName).digest("hex");
-  return hash + path.extname(originalName);
-};
-
-const saveFileForUser = (userId, buffer, originalName) => {
-  const filename = getDeterministicFilename(userId, originalName);
-  const filepath = path.join(uploadDir, filename);
-  fs.writeFileSync(filepath, buffer); // overwrite if exists
-  return filename;
-};
-
-// ----------------------------
-// POST /auth/provider-submit-info
+// PROVIDER ONBOARDING
 // ----------------------------
 export const providerSubmitInfo = async (req, res) => {
   try {
-    const userId = req.body.userId;
-    if (!userId) return res.status(400).json({ success: false, message: "User ID is required" });
+    // console.log("📥 providerSubmitInfo request received");
+    // console.log("Body:", req.body);
+    // console.log("Files:", req.files?.length || 0);
+
+    const { userId, businessName, contactPerson, phone, email, address, city } = req.body;
+    if (!userId)
+      return res.status(400).json({ success: false, message: "User ID is required" });
 
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
 
-    // Extract provider info from request body
-    const {
-      businessName,
-      contactPerson,
-      phone,
-      email,
-      address,
-      serviceType,
-      description,
-      price,
-    } = req.body;
-
-    // Handle uploaded images (max 5)
-    let images = user.providerInfo?.images || [];
+    let images = [];
     if (req.files && req.files.length > 0) {
       req.files.forEach((file) => {
         const filename = saveFileForUser(userId, file.buffer, file.originalname);
         images.push(filename);
       });
-      // Keep last 5 images
-      if (images.length > 5) images = images.slice(-5);
     }
 
-    // Update user document
-    user.role = "provider"; // ensure role is provider
+    user.role = "provider";
     user.providerInfo = {
       businessName,
       contactPerson,
-      phone,
-      email,
       address,
-      serviceType,
-      description,
-      price,
-      images,
+      city,
+      //images,
       onboardingComplete: true,
-      status: user.providerInfo?.status || "pending",
+      status: "pending",
+      services: [],
     };
 
     await user.save();
-
-    return res.json({ success: true, message: "Provider info submitted successfully" });
+    res.json({ success: true, message: "Provider info submitted successfully" });
   } catch (error) {
     console.error("providerSubmitInfo Error:", error);
-    return res.status(500).json({ success: false, message: "Server error", error: error.message });
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// ----------------------------
+// PROVIDER SERVICE MANAGEMENT
+// ----------------------------
+// ----------------------------
+// PROVIDER SERVICE MANAGEMENT (UPDATED WITH IMAGE DELETE SUPPORT)
+// ----------------------------
+export const providerService = async (req, res) => {
+  try {
+    const { userId, action, serviceId, serviceType, description, price } = req.body;
+
+    if (!userId || !action)
+      return res.status(400).json({ success: false, message: "Missing fields" });
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+    if (!user.providerInfo) user.providerInfo = { services: [] };
+    if (!Array.isArray(user.providerInfo.services)) user.providerInfo.services = [];
+
+    // ✅ Save newly uploaded files
+    let uploadedImages = [];
+    if (req.files && req.files.length > 0) {
+      req.files.forEach((file) => {
+        const filename = saveFileForUser(userId, file.buffer, file.originalname);
+        uploadedImages.push(filename);
+      });
+    }
+
+    // ✅ ADD
+    if (action === "add") {
+      const newService = {
+        _id: new mongoose.Types.ObjectId(),
+        serviceType,
+        description,
+        price,
+        images: uploadedImages,
+      };
+      user.providerInfo.services.push(newService);
+    }
+
+    // ✅ EDIT (with delete support)
+    if (action === "edit") {
+      const index = user.providerInfo.services.findIndex(
+        (s) => s._id.toString() === serviceId
+      );
+      if (index === -1)
+        return res.status(404).json({ success: false, message: "Service not found" });
+
+      // Parse existingImages (to retain) safely
+      let oldImages = [];
+      if (req.body.existingImages) {
+        try {
+          oldImages = JSON.parse(req.body.existingImages);
+        } catch (e) {
+          oldImages = [];
+        }
+      }
+
+      // Parse deletedImages (to remove) safely
+      let deletedImages = [];
+      if (req.body.deletedImages) {
+        try {
+          deletedImages = JSON.parse(req.body.deletedImages);
+        } catch (e) {
+          deletedImages = [];
+        }
+      }
+
+      // ✅ Delete images physically from "uploads" folder
+      if (deletedImages.length > 0) {
+        deletedImages.forEach((img) => {
+          const filePath = path.join(uploadDir, img);
+          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        });
+      }
+
+      // ✅ Final image list = remaining old + new uploads
+      const finalImages = [...oldImages, ...uploadedImages];
+
+      user.providerInfo.services[index] = {
+        ...user.providerInfo.services[index],
+        serviceType,
+        description,
+        price,
+        images: finalImages,
+      };
+    }
+
+    // ✅ DELETE entire service
+    if (action === "delete") {
+      const serviceToDelete = user.providerInfo.services.find(
+        (s) => s._id.toString() === serviceId
+      );
+
+      // Also remove images from uploads folder
+      if (serviceToDelete && Array.isArray(serviceToDelete.images)) {
+        serviceToDelete.images.forEach((img) => {
+          const filePath = path.join(uploadDir, img);
+          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        });
+      }
+
+      user.providerInfo.services = user.providerInfo.services.filter(
+        (s) => s._id.toString() !== serviceId
+      );
+    }
+
+    await user.save();
+    res.json({
+      success: true,
+      message: `Service ${action} successful`,
+      providerInfo: user.providerInfo,
+    });
+  } catch (error) {
+    console.error("providerService Error:", error);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
 
-// GET /auth/check-provider-status/:userId
+
+
+// ----------------------------
+// CHECK PROVIDER STATUS
+// ----------------------------
 export const checkProviderStatus = async (req, res) => {
   try {
     const { userId } = req.params;
     if (!userId)
-      return res.status(400).json({ success: false, message: "User ID is required" });
+      return res.status(400).json({ success: false, message: "User ID required" });
 
     const user = await User.findById(userId);
     if (!user)
@@ -326,5 +407,42 @@ export const checkProviderStatus = async (req, res) => {
   } catch (error) {
     console.error("checkProviderStatus Error:", error);
     res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+
+// ----------------------------
+// FETCH PROVIDER SERVICES
+// ----------------------------
+export const getProviderServices = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "User ID is required" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+
+    // Ensure providerInfo structure exists
+    if (!user.providerInfo || !Array.isArray(user.providerInfo.services)) {
+      return res.json({ success: true, services: [] });
+    }
+
+    res.json({
+      services: user.providerInfo.services,
+    });
+  } catch (error) {
+    console.error("getProviderServices Error:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to fetch provider services" });
   }
 };

@@ -38,15 +38,27 @@ const userSchema = new mongoose.Schema(
      providerInfo: {
       businessName: { type: String, default: "" },
       contactPerson: { type: String, default: "" },
-      phone: { type: String, default: "" },
-      email: { type: String, default: "" },
+      // phone: { type: String, default: "" },
+      // email: { type: String, default: "" },
       address: { type: String, default: "" },
-      serviceType: { type: String, default: "" },
-      description: { type: String, default: "" },
-      price: { type: String, default: "" },
-      images: { type: [String], default: [] },
+      city: { type: String, default: "" },
+      //serviceType: { type: String, default: "" },
+    //  description: { type: String, default: "" },
+    //  price: { type: String, default: "" },
+    //  images: { type: [String], default: [] },
+
+    services: [
+      {
+        serviceType: { type: String, default: "" },
+        description: { type: String, default: "" },
+        price: { type: String, default: "" },
+        images: { type: [String], default: [] },
+        status: { type: String, enum: ["pending", "approved", "rejected"], default: "pending" },
+      },
+    ],
       onboardingComplete: { type: Boolean, default: false },
-      status: { type: String, enum: ["pending", "approved", "rejected"], default: "pending"}
+      status: { type: String, enum: ["pending", "approved", "rejected"], default: "pending"},
+      
     },
   },
   { timestamps: true }

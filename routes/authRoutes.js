@@ -1,22 +1,43 @@
 import express from "express";
-import { login,sendOtp,verifyOtp ,setRole,providerSubmitInfo, upload,checkProviderStatus} from "../controllers/authController.js";
-import { protect } from "../middleware/authMiddleware.js"; // if you have auth middleware
+import {
+  login,
+  sendOtp,
+  verifyOtp,
+  setRole,
+  providerSubmitInfo,
+  upload,
+  checkProviderStatus,
+  providerService,
+  getProviderServices,
+} from "../controllers/authController.js";
+import { protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// router.post("/register", register);
 router.post("/login", login);
-
 router.post("/send-otp", sendOtp);
 router.post("/verify-otp", verifyOtp);
 router.post("/set-role", setRole);
-router.post(
-    "/provider-submit-info",
-    protect,          // optional if you want to protect this route
-    upload.array("images", 5), // handle max 5 images
-    providerSubmitInfo
-  );
 
-  router.get("/check-provider-status/:userId", checkProviderStatus);
-  
-  export default router;
+// Provider onboarding (no services)
+router.post(
+  "/provider-submit-info",
+  protect,
+  upload.array("images", 5),
+  providerSubmitInfo
+);
+
+// Add/Edit/Delete services (after approval)
+router.post(
+  "/provider-service",
+  protect,
+  upload.array("images", 5),
+  providerService
+);
+
+// Check provider approval status
+router.get("/check-provider-status/:userId", checkProviderStatus);
+
+router.get("/provider-services/:userId", protect, getProviderServices);
+
+export default router;
