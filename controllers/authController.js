@@ -446,3 +446,91 @@ export const getProviderServices = async (req, res) => {
       .json({ success: false, message: "Failed to fetch provider services" });
   }
 };
+
+
+// ----------------------------
+// CUSTOMER: FETCH SERVICES BY CITY (based on logged-in user)
+// ----------------------------
+export const getServicesByCity = async (req, res) => {
+  try {
+    const userId = req.user._id;
+  
+
+    const customer = await User.findById(userId);
+    if (!customer) return res.status(404).json({ success: false, message: "User not found" });
+    if (customer.role !== "customer")
+      return res.status(403).json({ success: false, message: "Only customers can access this" });
+
+    const city = customer.city?.trim();
+    
+    if (!city) return res.status(400).json({ success: false, message: "Customer city not set" });
+
+    const cityRegex = new RegExp(`^${city}$`, "i");
+
+    // ✅ Debug log
+    // const allProviders = await User.find({ role: "provider" });
+    // console.log(
+    //   "All providers data:",
+    //   allProviders.map((p) => ({
+    //     id: p._id,
+    //     rootStatus: p.status,
+    //     providerStatus: p.providerInfo?.status,
+    //     city: p.providerInfo?.city,
+    //   }))
+    // );
+
+    // ✅ Flexible query (checks both root and nested status)
+    const providers = await User.find({
+      role: "provider",
+      $or: [{ status: "approved" }, { "providerInfo.status": "approved" }],
+      "providerInfo.city": { $regex: cityRegex },
+    });
+
+    // console.log(
+    //   "Providers found:",
+    //   providers.length,
+    //   providers.map((p) => p.providerInfo.city)
+    // );
+
+    if (providers.length === 0) {
+      return res.status(404).json({ success: false, message: "No providers found in your city" });
+    }
+
+    const services = [];
+
+    providers.forEach((provider) => {
+      const providerServices = (provider.providerInfo.services || []).filter(
+        (s) => s.status === "approved" || s.status === "pending"
+      );
+
+      providerServices.forEach((service) => {
+        services.push({
+          providerId: provider._id,
+          providerName:provider.name,
+          providerEmail:provider.email,
+          phone:provider.phone,
+          providerImage: provider.profileImage,
+          businessName: provider.providerInfo.businessName,
+          city: provider.providerInfo.city,
+          serviceId: service._id,
+          serviceType: service.serviceType,
+          description: service.description,
+          price: service.price,
+          address: provider.providerInfo.address,
+          images: (service.images || []).map(
+            (img) => `${req.protocol}://${req.get("host")}/uploads/${img}`
+          ),
+        });
+      });
+    });
+
+    res.json({
+      city,
+      count: services.length,
+      services,
+    });
+  } catch (error) {
+    console.error("getServicesByCity Error:", error);
+    res.status(500).json({ success: false, message: "Server error", error: error.message });
+  }
+};

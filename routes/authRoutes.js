@@ -9,6 +9,7 @@ import {
   checkProviderStatus,
   providerService,
   getProviderServices,
+  getServicesByCity,
 } from "../controllers/authController.js";
 import { protect } from "../middleware/authMiddleware.js";
 
@@ -39,5 +40,7 @@ router.post(
 router.get("/check-provider-status/:userId", checkProviderStatus);
 
 router.get("/provider-services/:userId", protect, getProviderServices);
+
+router.get("/services-by-city", protect, getServicesByCity);
 
 export default router;
