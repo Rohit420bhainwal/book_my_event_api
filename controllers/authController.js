@@ -208,6 +208,7 @@ export const login = async (req, res) => {
         email: user.email,
         role: user.role,
         phone: user.phone,
+        city:user.city,
       },
       providerInfo: user.providerInfo,
     });
@@ -534,3 +535,143 @@ export const getServicesByCity = async (req, res) => {
     res.status(500).json({ success: false, message: "Server error", error: error.message });
   }
 };
+
+// ----------------------------
+// CUSTOMER: UPDATE CITY
+// ----------------------------
+export const updateCustomerCity = async (req, res) => {
+  try {
+    const { city } = req.body;
+
+    if (!city || city.trim() === "") {
+      return res.status(400).json({ success: false, message: "City is required" });
+    }
+
+    const userId = req.user._id;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    if (user.role !== "customer") {
+      return res.status(403).json({ success: false, message: "Only customers can update city" });
+    }
+
+    user.city = city.trim();
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "City updated successfully",
+      user: { id: user._id, city: user.city },
+    });
+  } catch (error) {
+    console.error("updateCustomerCity Error:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+
+// ----------------------------
+// CUSTOMER: SEARCH PROVIDERS BY BUSINESS NAME OR SERVICE TYPE
+// ----------------------------
+export const searchProviders = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { query } = req.query; // e.g., /search-providers?query=catering
+
+    if (!query || query.trim() === "") {
+      return res
+        .status(400)
+        .json({ success: false, message: "Search query is required" });
+    }
+
+    // ✅ Fetch customer
+    const customer = await User.findById(userId);
+    if (!customer)
+      return res
+        .status(404)
+        .json({ success: false, message: "Customer not found" });
+
+    if (customer.role !== "customer")
+      return res
+        .status(403)
+        .json({ success: false, message: "Only customers can search providers" });
+
+    // ✅ Get customer city
+    const city = customer.city?.trim();
+    if (!city) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Customer city not set" });
+    }
+
+    // ✅ Build search conditions
+    const searchRegex = new RegExp(query, "i"); // case-insensitive
+    const cityRegex = new RegExp(`^${city}$`, "i");
+
+    // ✅ Find approved providers in same city where businessName OR serviceType matches
+    const providers = await User.find({
+      role: "provider",
+      "providerInfo.status": "approved",
+      "providerInfo.city": { $regex: cityRegex },
+      $or: [
+        { "providerInfo.businessName": { $regex: searchRegex } },
+        { "providerInfo.services.serviceType": { $regex: searchRegex } },
+      ],
+    });
+
+    if (!providers.length) {
+      return res.json({
+        success: true,
+        message: "No matching providers found",
+        results: [],
+      });
+    }
+
+    // ✅ Transform response
+    const results = [];
+
+    providers.forEach((provider) => {
+      const matchedServices = (provider.providerInfo.services || []).filter((s) =>
+        searchRegex.test(s.serviceType)
+      );
+
+      results.push({
+        providerId: provider._id,
+        providerName: provider.name,
+        businessName: provider.providerInfo.businessName,
+        city: provider.providerInfo.city,
+        contactPerson: provider.providerInfo.contactPerson,
+        phone: provider.phone,
+        email: provider.email,
+        services: matchedServices.map((s) => ({
+          serviceType: s.serviceType,
+          description: s.description,
+          price: s.price,
+          status: s.status,
+          images: (s.images || []).map(
+            (img) => `${req.protocol}://${req.get("host")}/uploads/${img}`
+          ),
+        })),
+      });
+    });
+
+    res.json({
+      success: true,
+      query,
+      count: results.length,
+      results,
+    });
+  } catch (error) {
+    console.error("searchProviders Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+

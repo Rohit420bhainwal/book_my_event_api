@@ -10,6 +10,8 @@ import {
   providerService,
   getProviderServices,
   getServicesByCity,
+  updateCustomerCity,
+  searchProviders,
 } from "../controllers/authController.js";
 import { protect } from "../middleware/authMiddleware.js";
 
@@ -42,5 +44,8 @@ router.get("/check-provider-status/:userId", checkProviderStatus);
 router.get("/provider-services/:userId", protect, getProviderServices);
 
 router.get("/services-by-city", protect, getServicesByCity);
+
+router.post("/update-city", protect, updateCustomerCity);
+router.get("/search-providers", protect, searchProviders);
 
 export default router;
