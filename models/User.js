@@ -33,7 +33,10 @@ const userSchema = new mongoose.Schema(
     profileImage: { type: String, default: "" },
     otp: { type: String }, // for storing OTP temporarily
     otpExpiresAt: { type: Date }, // OTP expiry
-
+    
+    resetOtp: { type: String },
+    resetOtpExpiresAt: { type: Date },
+    resetOtpVerified: { type: Boolean, default: false },
      // **Provider-specific info**
      providerInfo: {
       businessName: { type: String, default: "" },

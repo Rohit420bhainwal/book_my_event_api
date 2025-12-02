@@ -2,6 +2,7 @@
 
 // models/Booking.js
 import mongoose from "mongoose";
+import { type } from "os";
 
 const bookingSchema = new mongoose.Schema(
   {
@@ -11,6 +12,15 @@ const bookingSchema = new mongoose.Schema(
     date: { type: Date, required: true },
     category: { type: String, required: true },
     status: { type: String, enum: ["pending", "confirmed", "canceled"], default: "pending" },
+    paymentId:{type:String, default: "" },
+
+      // 🔥 New Commission fields
+      bookingAmount: { type: Number, required: true }, 
+      commissionType: { type: String, enum: ["percentage", "fixed"], default: "percentage" },
+      commissionValue: { type: Number, default: 0 },
+      commissionAmount: { type: Number, default: 0 },
+      providerEarning: { type: Number, default: 0 },
+
   },
   { timestamps: true }
 );

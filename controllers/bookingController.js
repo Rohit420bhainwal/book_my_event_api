@@ -1,5 +1,6 @@
 import Booking from "../models/Booking.js";
 import User from "../models/User.js";
+import Settings from "../models/Settings.js"; 
 
 // Create a new booking (customer only)
 export const createBooking = async (req, res) => {
@@ -8,7 +9,7 @@ export const createBooking = async (req, res) => {
       return res.status(403).json({ message: "Only customers can create bookings" });
     }
 
-    const { providerId, serviceId, date } = req.body;
+    const { providerId, serviceId, date, paymentId } = req.body;
 
     // Validate provider
     const provider = await User.findById(providerId);
@@ -16,7 +17,7 @@ export const createBooking = async (req, res) => {
       return res.status(404).json({ message: "Provider not found" });
     }
 
-    // Find service inside providerInfo.services
+    // Find selected service from providerInfo.services
     const service = provider.providerInfo?.services?.find(
       (s) => s._id.toString() === serviceId
     );
@@ -24,19 +25,49 @@ export const createBooking = async (req, res) => {
       return res.status(404).json({ message: "Service not found for this provider" });
     }
 
+    // 👉 Step 1: Load app commission settings
+    const settings = await Settings.findOne({ key: "commission" });
+    const commissionType = settings?.commissionType || "percentage";
+    const commissionValue = settings?.commissionValue || 10;
+
+    const bookingAmount = service.price;
+    let commissionAmount = 0;
+
+    // 👉 Step 2: Calculate commission
+    if (commissionType === "percentage") {
+      commissionAmount = (bookingAmount * commissionValue) / 100;
+    } else if (commissionType === "fixed") {
+      commissionAmount = commissionValue;
+    }
+
+    // 👉 Step 3: Provider earning
+    const providerEarning = bookingAmount - commissionAmount;
+
     // Convert date string to start of day
     const bookingDate = new Date(date);
     bookingDate.setHours(0, 0, 0, 0);
 
+    // 👉 Step 4: Save booking
     const booking = await Booking.create({
       user: req.user._id,
       provider: providerId,
       service: serviceId,
       date: bookingDate,
       category: service.serviceType,
+      paymentId: paymentId,
+
+      // Commission fields
+      bookingAmount,
+      commissionType,
+      commissionValue,
+      commissionAmount,
+      providerEarning,
     });
 
-    res.status(201).json({ message: "Booking created successfully", booking });
+    res.status(201).json({
+      message: "Booking created with commission applied",
+      booking,
+    });
   } catch (error) {
     console.error("Booking Error:", error);
     res.status(500).json({ message: "Server error", error });
@@ -166,6 +197,7 @@ export const getBookingById = async (req, res) => {
         _id: provider._id,
         name: provider.name,
         email: provider.email,
+        city: provider.providerInfo.city||"",
         businessName: provider.providerInfo?.businessName || "",
       },
       user: user

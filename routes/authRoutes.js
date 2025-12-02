@@ -12,6 +12,9 @@ import {
   getServicesByCity,
   updateCustomerCity,
   searchProviders,
+  sendResetPasswordOtp,
+  verifyResetPasswordOtp,
+  setNewPassword,
 } from "../controllers/authController.js";
 import { protect } from "../middleware/authMiddleware.js";
 
@@ -47,5 +50,10 @@ router.get("/services-by-city", protect, getServicesByCity);
 
 router.post("/update-city", protect, updateCustomerCity);
 router.get("/search-providers", protect, searchProviders);
+
+router.post("/reset-password/send-otp", sendResetPasswordOtp);
+router.post("/reset-password/verify-otp", verifyResetPasswordOtp);
+router.post("/reset-password/set-new-password", setNewPassword);
+//router.post("/reset-password/change", resetPassword);
 
 export default router;

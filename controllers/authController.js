@@ -675,3 +675,153 @@ export const searchProviders = async (req, res) => {
 };
 
 
+// ----------------------------
+// RESET PASSWORD: SEND OTP
+// ----------------------------
+export const sendResetPasswordOtp = async (req, res) => {
+  try {
+    // Accept either:
+    // { input: "...", method: "email"|"phone" }
+    // OR { email: "..." }
+    // OR { phone: "..." }
+    let { input, method, email, phone } = req.body;
+
+    // normalize inputs
+    if (!input) {
+      if (email) {
+        input = email;
+        method = "email";
+      } else if (phone) {
+        input = phone;
+        method = "phone";
+      }
+    }
+
+    if (!input || !method)
+      return res.status(400).json({ success: false, message: "Input & method required" });
+
+    let user;
+    if (method === "email") user = await User.findOne({ email: input });
+    else if (method === "phone") user = await User.findOne({ phone: input });
+    else return res.status(400).json({ success: false, message: "Invalid method" });
+
+    if (!user)
+      return res.status(404).json({ success: false, message: "No user found with this email/phone" });
+
+    // generate OTP (for testing you had fixed '123456' — use generateOtp() in prod)
+    const otp = generateOtp(); // or "123456" for testing
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+
+    user.resetOtp = otp;
+    user.resetOtpExpiresAt = otpExpiry;
+    user.resetOtpVerified = false;
+    await user.save();
+
+    // send OTP - uncomment when ready
+    // if (method === "email") await sendEmailOtp(input, otp);
+    // if (method === "phone") await sendSmsOtp(input, otp);
+
+    console.log(`RESET OTP for ${input} = ${otp}`);
+
+    return res.json({ success: true, message: `Reset OTP sent to your ${method}` });
+  } catch (error) {
+    console.error("sendResetPasswordOtp Error:", error);
+    return res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
+
+// ----------------------------
+// RESET PASSWORD: VERIFY OTP
+// ----------------------------
+export const verifyResetPasswordOtp = async (req, res) => {
+  try {
+    // Accept either { input, method, otp } OR { email, otp } OR { phone, otp }
+    let { input, method, email, phone, otp } = req.body;
+
+    if (!input) {
+      if (email) {
+        input = email;
+        method = "email";
+      } else if (phone) {
+        input = phone;
+        method = "phone";
+      }
+    }
+
+    if (!input || !otp || !method)
+      return res.status(400).json({ success: false, message: "Missing fields" });
+
+    let user;
+    if (method === "email") user = await User.findOne({ email: input });
+    else user = await User.findOne({ phone: input });
+
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+    if (!user.resetOtp || user.resetOtp !== otp || !user.resetOtpExpiresAt || new Date() > user.resetOtpExpiresAt) {
+      return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
+    }
+
+    user.resetOtpVerified = true;
+    await user.save();
+
+    return res.json({ success: true, message: "OTP verified successfully" });
+  } catch (error) {
+    console.error("verifyResetPasswordOtp Error:", error);
+    return res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
+
+// ----------------------------
+// RESET PASSWORD: SET NEW PASSWORD
+// ----------------------------
+export const setNewPassword = async (req, res) => {
+  try {
+    // Accept either { input, method, newPassword } OR { email, newPassword } OR { phone, newPassword }
+    let { input, method, email, phone, newPassword } = req.body;
+
+    if (!input) {
+      if (email) {
+        input = email;
+        method = "email";
+      } else if (phone) {
+        input = phone;
+        method = "phone";
+      }
+    }
+
+    if (!input || !newPassword)
+      return res.status(400).json({ success: false, message: "Missing fields" });
+
+    // find user
+    let user;
+    if (method === "email" || email) user = await User.findOne({ email: input });
+    else user = await User.findOne({ phone: input });
+
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+    if (!user.resetOtpVerified)
+      return res.status(403).json({ success: false, message: "OTP not verified" });
+
+    // update password
+    user.password = await bcrypt.hash(newPassword, 10);
+
+    // clear reset fields
+    user.resetOtp = undefined;
+    user.resetOtpExpiresAt = undefined;
+    user.resetOtpVerified = false;
+
+    await user.save();
+
+    return res.json({ success: true, message: "Password updated successfully" });
+  } catch (error) {
+    console.error("setNewPassword Error:", error);
+    return res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
+
+
+
+
