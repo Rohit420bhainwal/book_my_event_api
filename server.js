@@ -15,6 +15,7 @@ import uploadRoutes from "./routes/uploadRoutes.js";
 import profileRoutes from "./routes/profileRoutes.js";
 
 import withdrawRoutes from "./routes/withdrawRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
 
 dotenv.config();
 const app = express();
@@ -47,6 +48,8 @@ app.use("/api/customer", customerRoutes);
 app.use("/api", uploadRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/withdraw", withdrawRoutes);
+app.use("/api/admin", adminRoutes);
+
 
 // Test route
 app.get("/test", (req, res) => {

@@ -60,7 +60,7 @@ const userSchema = new mongoose.Schema(
       },
     ],
       onboardingComplete: { type: Boolean, default: false },
-      status: { type: String, enum: ["pending", "approved", "rejected"], default: "pending"},
+      status: { type: String, enum: ["pending", "approved", "rejected","suspended"], default: "pending"},
       
     },
   },
