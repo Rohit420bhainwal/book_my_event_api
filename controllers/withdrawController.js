@@ -237,4 +237,30 @@ export const updateWithdrawStatus = async (req, res) => {
         .json({ message: "Server error", error: error.message });
     }
   };
+
+
+  // ---------------------------------------------------------
+// ADMIN → GET ALL WITHDRAWAL REQUESTS
+// ---------------------------------------------------------
+export const getAllWithdraws = async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ message: "Only admin can view all withdrawals" });
+    }
+
+    // Fetch all withdraw requests and populate provider info
+    const withdraws = await Withdraw.find()
+      .populate("provider", "_id name email phone businessName")
+      .sort({ createdAt: -1 }); // latest first
+
+    res.json({
+      success: true,
+      data: withdraws,
+    });
+  } catch (error) {
+    console.error("Get All Withdraws Error:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
   

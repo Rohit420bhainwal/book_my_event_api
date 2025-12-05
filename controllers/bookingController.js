@@ -239,3 +239,71 @@ export const updateBookingStatus = async (req, res) => {
     res.status(500).json({ message: "Server error", error });
   }
 };
+
+export const getAllBookingsForAdmin = async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ message: "Only admin can view all bookings" });
+    }
+
+    // 👉 Sort latest bookings first
+    const bookings = await Booking.find({}).sort({ createdAt: -1 });
+
+    const detailedBookings = await Promise.all(
+      bookings.map(async (booking) => {
+        const user = await User.findById(booking.user);
+        const provider = await User.findById(booking.provider);
+
+        const service = provider?.providerInfo?.services?.find(
+          (s) => s._id.toString() === booking.service.toString()
+        );
+
+        return {
+          _id: booking._id,
+          date: booking.date,
+          status: booking.status,
+          bookingAmount: booking.bookingAmount,
+          commissionAmount: booking.commissionAmount,
+          providerEarning: booking.providerEarning,
+          paymentId: booking.paymentId,
+
+          user: user
+            ? { _id: user._id, name: user.name, email: user.email, phone: user.phone }
+            : null,
+
+          provider: provider
+            ? {
+                _id: provider._id,
+                name: provider.name,
+                email: provider.email,
+                phone: provider.phone,
+                businessName: provider.providerInfo?.businessName || "",
+                profileImage: provider.profileImage
+                  ? `${req.protocol}://${req.get("host")}/uploads/${provider.profileImage}`
+                  : null,
+              }
+            : null,
+
+          service: service
+            ? {
+                serviceId: service._id,
+                serviceType: service.serviceType,
+                price: service.price,
+                status: service.status,
+                description: service.description,
+                images: (service.images || []).map(
+                  (img) => `${req.protocol}://${req.get("host")}/uploads/${img}`
+                ),
+              }
+            : {},
+        };
+      })
+    );
+
+    res.status(200).json(detailedBookings);
+  } catch (error) {
+    console.error("Admin Get All Bookings Error:", error);
+    res.status(500).json({ message: "Server error", error });
+  }
+};
+
