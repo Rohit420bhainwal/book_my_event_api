@@ -12,7 +12,6 @@ import {saveFileForUser1}  from "../utils/fileHelper.js";
 import Service from "../models/Service.js";
 import admin from "../config/firebaseAdmin.js";
 
-
 // ----------------------------
 // Helper functions
 // ----------------------------
@@ -214,7 +213,6 @@ export const setRole = async (req, res) => {
 // ----------------------------
 // LOGIN
 // ----------------------------
-
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -224,39 +222,31 @@ export const login = async (req, res) => {
     const user = await User.findOne({ email });
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // 🔥 Restrict ADMIN login from this API
-    if (user.role === "admin") {
-      return res.status(400).json({ message: "Invalid username or password" });
-    }
+       // 🔥 Restrict ADMIN login from this API
+       if (user.role === "admin") {
+        return res
+          .status(400)
+          .json({ message: "Invalid username or password" });
+      }
+
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
 
-    // ✅ Existing JWT (unchanged)
-    const token = jwt.sign(
-      { id: user._id, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
-    // 🔐 NEW: Firebase Custom Token
-    const firebaseToken = await admin
-      .auth()
-      .createCustomToken(user._id.toString(), {
-        role: user.role,
-      });
+    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
+      expiresIn: "7d",
+    });
 
     res.json({
       message: "Login successful",
-      token, // backend JWT
-      firebaseToken, // 👈 IMPORTANT (new)
+      token,
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
         phone: user.phone,
-        city: user.city,
+        city:user.city,
       },
       providerInfo: user.providerInfo,
     });
@@ -265,6 +255,7 @@ export const login = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+
 
 export const updateFcmToken = async (req, res) => {
   try {
@@ -303,46 +294,39 @@ export const loginAdmin = async (req, res) => {
     const user = await User.findOne({ email });
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // 🔥 Only ADMIN allowed here
-    if (user.role !== "admin") {
-      return res.status(400).json({ message: "Invalid username or password" });
-    }
+       // 🔥 Restrict ADMIN login from this API
+       if (user.role === "customer"||user.role === "provider") {
+        return res
+          .status(400)
+          .json({ message: "Invalid username or password" });
+      }
+
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
 
-    const token = jwt.sign(
-      { id: user._id, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
-    // Firebase token (optional for admin)
-    const firebaseToken = await admin
-      .auth()
-      .createCustomToken(user._id.toString(), {
-        role: user.role,
-      });
+    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
+      expiresIn: "7d",
+    });
 
     res.json({
       message: "Login successful",
       token,
-      firebaseToken,
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
         phone: user.phone,
-        city: user.city,
+        city:user.city,
       },
+      providerInfo: user.providerInfo,
     });
   } catch (error) {
     console.error("Login Error:", error);
     res.status(500).json({ message: "Server error" });
   }
 };
-
 // ----------------------------
 // PROVIDER ONBOARDING
 // ----------------------------
