@@ -21,6 +21,13 @@ import paymentRoutes from "./routes/stripePaymentRoutes.js";
 import providerStripeRoutes from "./routes/providerStripeRoutes.js";
 import bodyParser from "body-parser";
 import stripeWebhookRoutes from "./routes/stripeWebhookRoutes.js";
+import "./cron/autoCancelBookings.js";
+import reviewRoutes from "./routes/reviewRoutes.js";
+import availabilityRoutes from "./routes/availabilityRoutes.js";
+import providerAvailabilityRoutes from "./routes/providerAvailabilityRoutes.js";
+import notificationRoutes from "./routes/notificationRoutes.js";
+
+
 
 
 
@@ -60,6 +67,10 @@ app.use("/api/withdraw", withdrawRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api/provider/stripe", providerStripeRoutes);
+app.use("/api/reviews", reviewRoutes);
+app.use("/api/availability",availabilityRoutes);
+app.use("/api/provider", providerAvailabilityRoutes);
+app.use("/api", notificationRoutes);
 
 
 // Test route
