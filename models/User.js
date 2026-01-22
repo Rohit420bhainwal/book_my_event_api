@@ -24,6 +24,12 @@ const userSchema = new mongoose.Schema(
 
     profileImage: { type: String, default: "" },
 
+    fcmToken: {
+      type: String,
+      default: "",
+      index: true,
+    },
+
     otp: { type: String },
     otpExpiresAt: { type: Date },
 
@@ -39,10 +45,10 @@ const userSchema = new mongoose.Schema(
       contactPerson: { type: String, default: "" },
       address: { type: String, default: "" },
       city: { type: String, default: "" },
-
+    
       stripeAccountId: { type: String, default: "" },
       stripeOnboardingCompleted: { type: Boolean, default: false },
-
+    
       governmentIdProof: {
         idType: {
           type: String,
@@ -51,8 +57,8 @@ const userSchema = new mongoose.Schema(
         },
         frontImage: { type: String, default: "" },
         backImage: { type: String, default: "" },
-      },      
-
+      },
+    
       services: {
         type: [
           {
@@ -71,15 +77,37 @@ const userSchema = new mongoose.Schema(
         ],
         default: [],
       },
-
+    
+      // ==========================
+      // RATINGS & REVIEWS
+      // ==========================
+      rating: {
+        avgRating: {
+          type: Number,
+          default: 0,
+        },
+        ratingCount: {
+          type: Number,
+          default: 0,
+        },
+        ratingDistribution: {
+          1: { type: Number, default: 0 },
+          2: { type: Number, default: 0 },
+          3: { type: Number, default: 0 },
+          4: { type: Number, default: 0 },
+          5: { type: Number, default: 0 },
+        },
+      },
+    
       onboardingComplete: { type: Boolean, default: false },
-
+    
       status: {
         type: String,
         enum: ["pending", "approved", "rejected", "suspended"],
         default: "pending",
       },
     },
+    
   },
   { timestamps: true }
 );
