@@ -255,6 +255,35 @@ export const login = async (req, res) => {
   }
 };
 
+
+export const updateFcmToken = async (req, res) => {
+  try {
+    const { userId, fcmToken } = req.body;
+
+    if (!userId || !fcmToken) {
+      return res.status(400).json({
+        success: false,
+        message: "userId and fcmToken required",
+      });
+    }
+
+    await User.findByIdAndUpdate(userId, {
+      fcmToken,
+    });
+
+    res.json({
+      success: true,
+      message: "FCM token updated",
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+};
+
+
 export const loginAdmin = async (req, res) => {
   try {
     const { email, password } = req.body;

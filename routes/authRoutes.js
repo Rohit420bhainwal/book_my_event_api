@@ -16,6 +16,7 @@ import {
   sendResetPasswordOtp,
   verifyResetPasswordOtp,
   setNewPassword,
+  updateFcmToken,
 } from "../controllers/authController.js";
 import { protect } from "../middleware/authMiddleware.js";
 
@@ -26,6 +27,7 @@ router.post("/login-admin", loginAdmin);
 router.post("/send-otp", sendOtp);
 router.post("/verify-otp", verifyOtp);
 router.post("/set-role", setRole);
+router.post("/update-fcm-token", updateFcmToken);
 
 // Provider onboarding (no services)
 // router.post(
