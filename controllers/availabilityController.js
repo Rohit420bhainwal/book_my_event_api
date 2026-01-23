@@ -36,7 +36,7 @@ export const getMonthlyAvailability = async (req, res) => {
 
     // STEP 2: Fetch availability config
     const config = await AvailabilityConfig.findOne({ providerId, serviceId });
-    console.log("config: "+config);
+  
 
     if (!config) return res.status(404).json({ success: false, message: "Availability not configured" });
 
