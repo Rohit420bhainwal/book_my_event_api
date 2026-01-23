@@ -13,202 +13,393 @@ import Refund from "../models/Refund.js";
 export const createPaymentIntent = async (req, res) => {
   try {
     const {
+      paymentType, // "ADVANCE" | "FULL" | "REMAINING"
       providerId,
       serviceId,
       date,
-      amount,
-      currency,
+      slot,
+      bookingId,
+      currency = "inr",
     } = req.body;
 
+    if (!paymentType) {
+      return res.status(400).json({ message: "paymentType is required" });
+    }
+
+    if (!slot) {
+      return res.status(400).json({ message: "slot is required" });
+    }
     
 
-    if (!amount) {
-      return res.status(400).json({ message: "Amount is required" });
+    const ALLOWED_CURRENCIES = ["inr", "usd", "aed"];
+    if (!ALLOWED_CURRENCIES.includes(currency)) {
+      return res.status(400).json({ message: "Unsupported currency" });
     }
 
-    const provider = await User.findById(providerId);
-    if (!provider || provider.role !== "provider") {
-      return res.status(404).json({ message: "Provider not found" });
-    }
+    let amountToPay = 0;
+    let metadata = {};
 
-    
-    // const service = provider.providerInfo?.services?.find((s) => s._id.toString() === serviceId);
-    // if (!service) {
-    //   return res.status(404).json({ message: "Service not found" });
-    // }
+    // =====================================
+    // 🔹 ADVANCE (25%) OR FULL (100%) PAYMENT
+    // =====================================
+    if (paymentType === "ADVANCE" || paymentType === "FULL") {
+      if (!providerId || !serviceId || !date) {
+        return res.status(400).json({
+          message: "providerId, serviceId and date are required",
+        });
+      }
 
-        // Find selected service from providerInfo.services
-        const service = provider.providerInfo?.services?.find(
-          (s) => s._id.toString() === serviceId
-        );
-        if (!service) {
-          return res.status(404).json({ message: "Service not found for this provider" });
-        }
+      if (isNaN(new Date(date).getTime())) {
+        return res.status(400).json({ message: "Invalid booking date" });
+      }
 
-const ALLOWED_CURRENCIES = ["inr", "usd", "aed"];
+      const provider = await User.findById(providerId);
+      if (!provider || provider.role !== "provider") {
+        return res.status(404).json({ message: "Provider not found" });
+      }
 
-if (!ALLOWED_CURRENCIES.includes(currency)) {
-  return res.status(400).json({
-    message: "Unsupported currency",
-    received: currency,
-  });
-}
+      const service = provider.providerInfo?.services?.find(
+        (s) => s._id.toString() === serviceId
+      );
 
-
-    const settings = await Settings.findOne({ key: "commission" });
-    const commissionType = settings?.commissionType || "percentage";
-    const commissionValue = settings?.commissionValue || 15;
-
-    let commissionAmount = 0;
-    if (commissionType === "percentage") {
-      commissionAmount = (amount * commissionValue) / 100;
-    } else {
-      commissionAmount = commissionValue;
-    }
+      if (!service) {
+        return res.status(404).json({ message: "Service not found" });
+      }
 
 
-    const providerEarning = amount - commissionAmount;
+      const isSlotAvailable = await checkSlotAvailability({
+        serviceId,
+        date,
+        slot,
+      });
+      
+      if (!isSlotAvailable) {
+        return res.status(409).json({
+          message: "Selected slot is no longer available",
+        });
+      }
 
-    const bookingDate = new Date(date);
-   // bookingDate.setHours(0, 0, 0, 0);
+      
+      const totalAmount = service.price;
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+      let advanceAmount = 0;
+      let remainingAmount = 0;
 
-    const diffDays = Math.ceil(
-      (bookingDate - today) / (1000 * 60 * 60 * 24)
-    );
+      if (paymentType === "ADVANCE") {
+        advanceAmount = Math.round(totalAmount * 0.25);
+        remainingAmount = totalAmount - advanceAmount;
+        amountToPay = advanceAmount;
+      } else {
+        // FULL PAYMENT
+        advanceAmount = totalAmount;
+        remainingAmount = 0;
+        amountToPay = totalAmount;
+      }
 
-    const bookingType = diffDays <= 2 ? "urgent" : "regular";
-
-    let payoutReleaseDate;
-    let payoutStatus = "pending";
-    
-    if (bookingType === "urgent") {
-      //payoutReleaseDate = today;
-      payoutReleaseDate = new Date(); // exact current UTC time
-
-      payoutStatus = "available";
-    } else {
-      //payoutReleaseDate = new Date(bookingDate);
-      //payoutReleaseDate.setDate(payoutReleaseDate.getDate() - 1);
-      payoutReleaseDate = new Date(bookingDate.getTime() - 24 * 60 * 60 * 1000);
-
-    }
-
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount * 100),
-      currency,
-      automatic_payment_methods: { enabled: true },
-      // application_fee_amount: Math.round(commissionAmount * 100),
-
-      // transfer_data: {
-      //   destination: provider.providerInfo.stripeAccountId,
-      // },
-     
-      metadata: {
-        source: "flutter_app",
+      metadata = {
+        paymentType,
         providerId,
         serviceId,
-        bookingType,
-        commissionAmount,
-        commissionType,
-        providerEarning,
-        payoutReleaseDate: payoutReleaseDate.toISOString(),
-      },
+        date,
+        slot,
+        totalAmount,
+        advanceAmount,
+        remainingAmount,
+      };
+    }
+
+    // =====================================
+    // 🔹 REMAINING PAYMENT (75%)
+    // =====================================
+    if (paymentType === "REMAINING") {
+      if (!bookingId) {
+        return res.status(400).json({
+          message: "bookingId is required for REMAINING payment",
+        });
+      }
+
+      const booking = await Booking.findById(bookingId);
+
+      if (!booking) {
+        return res.status(404).json({ message: "Booking not found" });
+      }
+
+      if (booking.status === "cancelled") {
+        return res.status(400).json({ message: "Booking is cancelled" });
+      }
+
+      if (booking.paymentStatus !== "advance_paid") {
+        return res.status(400).json({
+          message: "Remaining payment not allowed for this booking",
+        });
+      }
+
+      if (
+        booking.paymentDeadline &&
+        new Date() > new Date(booking.paymentDeadline)
+      ) {
+        return res.status(400).json({
+          message: "Payment deadline crossed",
+        });
+      }
+
+      amountToPay = booking.remainingAmount;
+
+      metadata = {
+        paymentType: "REMAINING",
+        bookingId: booking._id.toString(),
+        totalAmount: booking.totalAmount,
+        advanceAmount: booking.advanceAmount,
+        remainingAmount: booking.remainingAmount,
+      };
+    }
+
+    // =====================================
+    // 🔹 CREATE STRIPE PAYMENT INTENT
+    // =====================================
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(amountToPay * 100),
+      currency,
+      automatic_payment_methods: { enabled: true },
+      metadata,
     });
 
-    res.json({
+    return res.json({
       clientSecret: paymentIntent.client_secret,
       paymentIntentId: paymentIntent.id,
-      bookingAmount: amount,
-      commissionAmount,
-      providerEarning,
-      bookingType,
-      payoutReleaseDate,
+      amount: amountToPay,
+      paymentType,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error", error: error.message });
+    console.error("createPaymentIntent error:", error);
+    return res.status(500).json({
+      message: "Server error",
+      error: error.message,
+    });
   }
 };
-
 
 export const confirmBooking = async (req, res) => {
   try {
     if (req.user.role !== "customer") {
-      return res.status(403).json({ message: "Only customers can create bookings" });
+      return res
+        .status(403)
+        .json({ message: "Only customers can confirm payments" });
     }
-    const { providerId, serviceId, date, paymentIntentId, userId } = req.body;
-  
 
-    // Verify PaymentIntent
+    const { paymentIntentId } = req.body;
+
+    if (!paymentIntentId) {
+      return res.status(400).json({ message: "paymentIntentId is required" });
+    }
+
+    // 1️⃣ Retrieve Stripe PaymentIntent
     const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-    if (paymentIntent.status !== "succeeded")
-      return res.status(400).json({ message: "Payment not successful" });
 
-  
-    const provider = await User.findById(providerId);
-    if (!provider || provider.role !== "provider") {
-      return res.status(404).json({ message: "Provider not found" });
+    if (paymentIntent.status !== "succeeded") {
+      return res.status(400).json({ message: "Payment not successful" });
     }
 
-      // Extract metadata
-        // Find selected service from providerInfo.services
-        const service = provider.providerInfo?.services?.find(
-          (s) => s._id.toString() === serviceId
-        );
-        if (!service) {
-          return res.status(404).json({ message: "Service not found for this provider" });
-        }
+    const metadata = paymentIntent.metadata;
+    const paymentType = metadata.paymentType;
 
-            // 👉 Step 1: Load app commission settings
-    const settings = await Settings.findOne({ key: "commission" });
-    // const commissionType = settings?.commissionType || "percentage";
-    // const commissionValue = settings?.commissionValue || 10;
+    if (!paymentType) {
+      return res.status(400).json({ message: "Invalid payment metadata" });
+    }
 
-    const bookingAmount = service.price;
-  
+    // =====================================================
+    // 🔹 ADVANCE (25%) OR FULL (100%) → CREATE BOOKING
+    // =====================================================
+    if (paymentType === "ADVANCE" || paymentType === "FULL") {
+      const {
+        providerId,
+        serviceId,
+        date,
+        slot,
+        totalAmount,
+        advanceAmount,
+        remainingAmount,
+      } = metadata;
 
-    // 👉 Step 2: Calculate commission
-  
+      const provider = await User.findById(providerId);
+      if (!provider || provider.role !== "provider") {
+        return res.status(404).json({ message: "Provider not found" });
+      }
 
-    const {
-      bookingType,
-      // commissionAmount,
-      commissionType,
-      // providerEarning,
-      // payoutReleaseDate,
-    } = paymentIntent.metadata;
-  
-    const payoutReleaseDate = new Date(paymentIntent.metadata.payoutReleaseDate);
-const commissionAmount = Number(paymentIntent.metadata.commissionAmount);
-const providerEarning = Number(paymentIntent.metadata.providerEarning);
+      const service = provider.providerInfo?.services?.find(
+        (s) => s._id.toString() === serviceId
+      );
+
+      if (!service) {
+        return res.status(404).json({ message: "Service not found" });
+      }
+
+       // 🔒 FINAL AVAILABILITY RE-CHECK (CRITICAL)
+       const stillAvailable = await checkSlotAvailability({
+        serviceId,
+        date,
+        slot,
+      });
+
+      if (!stillAvailable) {
+        // TODO: initiate refund here later
+        return res.status(409).json({
+          message:
+            "Slot became unavailable after payment. Refund will be initiated.",
+        });
+      }
+
+      // Commission calculation
+      const settings = await Settings.findOne({ key: "commission" });
+      const commissionType = settings?.commissionType || "percentage";
+      const commissionValue = settings?.commissionValue || 15;
+
+      const commissionAmount =
+        commissionType === "percentage"
+          ? (totalAmount * commissionValue) / 100
+          : commissionValue;
+
+      const providerEarning = totalAmount - commissionAmount;
+
+      const bookingDate = new Date(date);
+      bookingDate.setHours(0, 0, 0, 0);
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const diffDays = Math.ceil(
+        (bookingDate - today) / (1000 * 60 * 60 * 24)
+      );
+
+      const bookingType = diffDays <= 2 ? "urgent" : "regular";
+
+      const payoutReleaseDate =
+        bookingType === "urgent"
+          ? new Date()
+          : new Date(bookingDate.getTime() - 24 * 60 * 60 * 1000);
+
+      const isFullPayment = paymentType === "FULL";
+
+      const paymentDeadline = isFullPayment
+        ? null
+        : new Date(bookingDate.getTime() - 24 * 60 * 60 * 1000);
+
+        let providerResponseDeadline;
+
+if (bookingType === "urgent") {
+  // provider has 2 hours
+  providerResponseDeadline = new Date(Date.now() + 1 * 60 * 60 * 1000);
+} else {
+  // provider has 24 hours
+  providerResponseDeadline = new Date(Date.now() + 24 * 60 * 60 * 1000);
+}
 
 
-    // Create booking
-    const booking = await Booking.create({
-      user: req.user._id,
-      provider: providerId,
-      service: serviceId,
-      date: new Date(date),
-      category: service.serviceType,
-      paymentId: paymentIntent.id,
-      bookingAmount: paymentIntent.amount / 100,
-      commissionType: paymentIntent.commissionType,
-      commissionValue: (commissionAmount / (paymentIntent.amount / 100)) * 100,
-      commissionAmount,
-      providerEarning,
-      bookingType,
-      payoutReleaseDate: new Date(payoutReleaseDate),
-      payoutStatus: bookingType === "urgent" ? "available" : "pending",
-    });
+      const booking = await Booking.create({
+        user: req.user._id,
+        provider: providerId,
+        service: serviceId,
+        date: bookingDate,
+        slot,
+        category: service.serviceType,
 
-    res.status(201).json({ message: "Booking confirmed", booking });
+        // ❗ IMPORTANT CHANGE
+        status: "pending", // ✅ provider will confirm later
+        paymentStatus: isFullPayment ? "fully_paid" : "advance_paid",
+
+        totalAmount: Number(totalAmount),
+        advanceAmount: Number(advanceAmount),
+        paidAmount: isFullPayment
+          ? Number(totalAmount)
+          : Number(advanceAmount),
+        remainingAmount: isFullPayment ? 0 : Number(remainingAmount),
+
+        advancePaymentId: paymentIntent.id,
+        paymentDeadline,
+
+        commissionType,
+        commissionValue,
+        commissionAmount,
+        providerEarning,
+        bookingType,
+        payoutReleaseDate,
+        payoutStatus: "pending", // 🔒 locked until provider confirms
+        providerResponseDeadline,
+        refundStatus: "none",
+      });
+
+      return res.status(201).json({
+        message: isFullPayment
+          ? "Full payment successful. Booking pending provider confirmation."
+          : "Advance payment successful. Booking created.",
+        booking,
+      });
+    }
+
+    // =====================================================
+    // 🔹 REMAINING PAYMENT (75%)
+    // =====================================================
+    if (paymentType === "REMAINING") {
+      const { bookingId } = metadata;
+
+      const booking = await Booking.findById(bookingId);
+      if (!booking) {
+        return res.status(404).json({ message: "Booking not found" });
+      }
+
+      if (booking.status === "cancelled") {
+        return res.status(400).json({ message: "Booking is cancelled" });
+      }
+
+      if (booking.paymentStatus !== "advance_paid") {
+        return res.status(400).json({
+          message: "Booking not eligible for remaining payment",
+        });
+      }
+
+      booking.paidAmount = booking.totalAmount;
+      booking.remainingAmount = 0;
+      booking.paymentStatus = "fully_paid";
+      booking.remainingPaymentId = paymentIntent.id;
+
+      // ❗ DO NOT CONFIRM
+     // booking.status = "pending"; // provider action required
+
+      await booking.save();
+
+      return res.status(200).json({
+        message:
+          "Remaining payment successful. Awaiting provider confirmation.",
+        booking,
+      });
+    }
+
+    return res.status(400).json({ message: "Unsupported payment type" });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error", error });
+    console.error("confirmBooking error:", error);
+    return res.status(500).json({
+      message: "Server error",
+      error: error.message,
+    });
   }
+};
+
+
+
+export const checkSlotAvailability = async ({ serviceId, date, slot }) => {
+  // Convert date to start of day
+  const bookingDate = new Date(date);
+  bookingDate.setHours(0, 0, 0, 0);
+
+  // Check if any booking already exists for this service, date, and slot
+  const existingBooking = await Booking.findOne({
+    service: serviceId,
+    date: bookingDate,
+    slot: slot,
+    status: { $ne: "cancelled" }, // exclude cancelled bookings
+  });
+
+  return !existingBooking; // true if available
 };
 
 
@@ -472,6 +663,76 @@ export const updateBookingStatus = async (req, res) => {
   }
 };
 
+// controllers/bookingController.js
+export const completeBookingByProvider = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+
+    const booking = await Booking.findById(bookingId);
+
+    if (!booking) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
+
+    // 🔐 Provider auth check
+    if (booking.provider.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "Unauthorized" });
+    }
+
+    // ❌ Already completed
+    if (booking.status === "completed") {
+      return res.status(400).json({ message: "Booking already completed" });
+    }
+
+    // ❌ Cancelled / refunded safety
+    if (booking.status === "canceled" || booking.refundStatus !== "none") {
+      return res
+        .status(400)
+        .json({ message: "Cancelled or refunded booking cannot be completed" });
+    }
+
+    // 💳 Payment check
+    if (booking.paymentStatus !== "fully_paid") {
+      return res.status(400).json({ message: "Payment not completed" });
+    }
+
+    // 📌 Status check
+    if (booking.status !== "confirmed") {
+      return res
+        .status(400)
+        .json({ message: "Booking not in confirmed state" });
+    }
+
+    // ⏰ SERVICE DATE CHECK (IMPORTANT)
+    const now = new Date();
+    const serviceDate = new Date(booking.date);
+
+   
+    if (now < serviceDate) {
+      return res.status(400).json({
+        message: "Booking cannot be completed before service date",
+      });
+    }
+
+    // ✅ Mark completed
+    booking.status = "completed";
+    booking.payoutStatus = "available";
+    booking.completedAt = now; // (optional but recommended)
+
+    await booking.save();
+
+    return res.json({
+      success: true,
+      message: "Booking marked as completed",
+    });
+  } catch (error) {
+    console.error("Complete Booking Error:", error);
+    res.status(500).json({ message: "Failed to complete booking" });
+  }
+};
+
+
+
 export const getAllBookingsForAdmin = async (req, res) => {
   try {
     if (req.user.role !== "admin") {
@@ -618,68 +879,100 @@ export const cancelBookingByProvider = async (req, res) => {
     const { bookingId } = req.params;
     const { reason } = req.body;
 
-    const booking = await Booking.findById(bookingId)
-      .populate("user provider");
-
-    if (!booking)
+    const booking = await Booking.findById(bookingId).populate("user provider");
+    if (!booking) {
       return res.status(404).json({ message: "Booking not found" });
+    }
 
-    // 🔐 Provider ownership check
-
+    // 🔐 Ownership check
     if (booking.provider._id.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: "Unauthorized" });
     }
 
     // 🚫 Already refunded
-    if (booking.refundStatus && booking.refundStatus !== "none") {
+    if (booking.refundStatus !== "none") {
       return res.status(400).json({ message: "Refund already processed" });
     }
 
-    // 🚫 No payment
-    if (!booking.paymentId) {
-      return res.status(400).json({ message: "No payment found for this booking" });
+    // 🚫 Nothing paid
+    if (!booking.advancePaymentId && !booking.remainingPaymentId) {
+      return res.status(400).json({ message: "No payment to refund" });
     }
 
-    // 1️⃣ Create refund DB record
+    // 1️⃣ Create refund record (INITIATED)
     const refund = await Refund.create({
       booking: booking._id,
       customer: booking.user._id,
       provider: booking.provider._id,
-      amount: booking.bookingAmount,
+      amount: 0,
       reason: reason || "Cancelled by provider",
       initiatedBy: "provider",
       status: "initiated",
+      refundDetails: [],
     });
 
-    // 2️⃣ Stripe refund
-    const stripeRefund = await stripe.refunds.create({
-      payment_intent: booking.paymentId,
-    });
+    let totalRefunded = 0;
+    const refundDetails = [];
 
-    // 3️⃣ Reverse payout if already transferred
+    // 2️⃣ Refund ADVANCE payment
+    if (booking.advancePaymentId && booking.paidAmount >= booking.advanceAmount) {
+      const advanceRefund = await stripe.refunds.create({
+        payment_intent: booking.advancePaymentId,
+      });
+
+      refundDetails.push({
+        paymentIntentId: booking.advancePaymentId,
+        stripeRefundId: advanceRefund.id,
+        amount: booking.advanceAmount,
+      });
+
+      totalRefunded += booking.advanceAmount;
+    }
+
+    // 3️⃣ Refund REMAINING payment (only if actually paid)
+    const remainingPaid = booking.paidAmount - booking.advanceAmount;
+
+    if (booking.remainingPaymentId && remainingPaid > 0) {
+      const remainingRefund = await stripe.refunds.create({
+        payment_intent: booking.remainingPaymentId,
+      });
+
+      refundDetails.push({
+        paymentIntentId: booking.remainingPaymentId,
+        stripeRefundId: remainingRefund.id,
+        amount: remainingPaid,
+      });
+
+      totalRefunded += remainingPaid;
+    }
+
+    // 4️⃣ Reverse payout if already transferred
     if (booking.stripeTransferId) {
       await stripe.transfers.createReversal(booking.stripeTransferId);
     }
 
-    // 4️⃣ Update refund
+    // 5️⃣ Update refund record (PROCESSED)
+    refund.amount = totalRefunded;
     refund.status = "processed";
-    refund.stripeRefundId = stripeRefund.id;
+    refund.refundDetails = refundDetails;
+    refund.stripeRefundId = refundDetails
+      .map(r => r.stripeRefundId)
+      .join(",");
     await refund.save();
 
-    // 5️⃣ Update booking
+    // 6️⃣ Update booking
     booking.status = "cancelled";
     booking.refundStatus = "refunded";
     booking.refundId = refund._id;
     booking.cancelledBy = "provider";
-
-    // ❌ Prevent withdrawal
     booking.payoutStatus = "cancelled";
-
     await booking.save();
 
     res.json({
       success: true,
       message: "Booking cancelled and refund processed",
+      refundedAmount: totalRefunded,
+      refundBreakup: refundDetails,
       refundId: refund._id,
     });
 
@@ -688,10 +981,6 @@ export const cancelBookingByProvider = async (req, res) => {
     res.status(500).json({ message: "Cancellation failed" });
   }
 };
-
-
-
-
 
 
 
