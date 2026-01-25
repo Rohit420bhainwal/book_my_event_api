@@ -26,11 +26,6 @@ export const createPaymentIntent = async (req, res) => {
       return res.status(400).json({ message: "paymentType is required" });
     }
 
-    if (!slot) {
-      return res.status(400).json({ message: "slot is required" });
-    }
-    
-
     const ALLOWED_CURRENCIES = ["inr", "usd", "aed"];
     if (!ALLOWED_CURRENCIES.includes(currency)) {
       return res.status(400).json({ message: "Unsupported currency" });
@@ -39,13 +34,13 @@ export const createPaymentIntent = async (req, res) => {
     let amountToPay = 0;
     let metadata = {};
 
-    // =====================================
-    // 🔹 ADVANCE (25%) OR FULL (100%) PAYMENT
-    // =====================================
+    // =====================================================
+    // 🔹 ADVANCE (25%) OR FULL (100%) → NEW BOOKING
+    // =====================================================
     if (paymentType === "ADVANCE" || paymentType === "FULL") {
-      if (!providerId || !serviceId || !date) {
+      if (!providerId || !serviceId || !date || !slot) {
         return res.status(400).json({
-          message: "providerId, serviceId and date are required",
+          message: "providerId, serviceId, date and slot are required",
         });
       }
 
@@ -66,22 +61,19 @@ export const createPaymentIntent = async (req, res) => {
         return res.status(404).json({ message: "Service not found" });
       }
 
-
       const isSlotAvailable = await checkSlotAvailability({
         serviceId,
         date,
         slot,
       });
-      
+
       if (!isSlotAvailable) {
         return res.status(409).json({
           message: "Selected slot is no longer available",
         });
       }
 
-      
       const totalAmount = service.price;
-
       let advanceAmount = 0;
       let remainingAmount = 0;
 
@@ -90,7 +82,6 @@ export const createPaymentIntent = async (req, res) => {
         remainingAmount = totalAmount - advanceAmount;
         amountToPay = advanceAmount;
       } else {
-        // FULL PAYMENT
         advanceAmount = totalAmount;
         remainingAmount = 0;
         amountToPay = totalAmount;
@@ -108,9 +99,9 @@ export const createPaymentIntent = async (req, res) => {
       };
     }
 
-    // =====================================
+    // =====================================================
     // 🔹 REMAINING PAYMENT (75%)
-    // =====================================
+    // =====================================================
     if (paymentType === "REMAINING") {
       if (!bookingId) {
         return res.status(400).json({
@@ -143,6 +134,12 @@ export const createPaymentIntent = async (req, res) => {
         });
       }
 
+      if (booking.remainingAmount <= 0) {
+        return res.status(400).json({
+          message: "No remaining amount to pay",
+        });
+      }
+
       amountToPay = booking.remainingAmount;
 
       metadata = {
@@ -154,9 +151,9 @@ export const createPaymentIntent = async (req, res) => {
       };
     }
 
-    // =====================================
+    // =====================================================
     // 🔹 CREATE STRIPE PAYMENT INTENT
-    // =====================================
+    // =====================================================
     const paymentIntent = await stripe.paymentIntents.create({
       amount: Math.round(amountToPay * 100),
       currency,
@@ -164,7 +161,7 @@ export const createPaymentIntent = async (req, res) => {
       metadata,
     });
 
-    return res.json({
+    return res.status(200).json({
       clientSecret: paymentIntent.client_secret,
       paymentIntentId: paymentIntent.id,
       amount: amountToPay,
@@ -178,6 +175,7 @@ export const createPaymentIntent = async (req, res) => {
     });
   }
 };
+
 
 export const confirmBooking = async (req, res) => {
   try {
@@ -193,7 +191,6 @@ export const confirmBooking = async (req, res) => {
       return res.status(400).json({ message: "paymentIntentId is required" });
     }
 
-    // 1️⃣ Retrieve Stripe PaymentIntent
     const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
 
     if (paymentIntent.status !== "succeeded") {
@@ -208,7 +205,7 @@ export const confirmBooking = async (req, res) => {
     }
 
     // =====================================================
-    // 🔹 ADVANCE (25%) OR FULL (100%) → CREATE BOOKING
+    // 🔹 ADVANCE / FULL → CREATE BOOKING
     // =====================================================
     if (paymentType === "ADVANCE" || paymentType === "FULL") {
       const {
@@ -234,22 +231,19 @@ export const confirmBooking = async (req, res) => {
         return res.status(404).json({ message: "Service not found" });
       }
 
-       // 🔒 FINAL AVAILABILITY RE-CHECK (CRITICAL)
-       const stillAvailable = await checkSlotAvailability({
+      const stillAvailable = await checkSlotAvailability({
         serviceId,
         date,
         slot,
       });
 
       if (!stillAvailable) {
-        // TODO: initiate refund here later
         return res.status(409).json({
           message:
             "Slot became unavailable after payment. Refund will be initiated.",
         });
       }
 
-      // Commission calculation
       const settings = await Settings.findOne({ key: "commission" });
       const commissionType = settings?.commissionType || "percentage";
       const commissionValue = settings?.commissionValue || 15;
@@ -284,16 +278,10 @@ export const confirmBooking = async (req, res) => {
         ? null
         : new Date(bookingDate.getTime() - 24 * 60 * 60 * 1000);
 
-        let providerResponseDeadline;
-
-if (bookingType === "urgent") {
-  // provider has 2 hours
-  providerResponseDeadline = new Date(Date.now() + 1 * 60 * 60 * 1000);
-} else {
-  // provider has 24 hours
-  providerResponseDeadline = new Date(Date.now() + 24 * 60 * 60 * 1000);
-}
-
+      const providerResponseDeadline =
+        bookingType === "urgent"
+          ? new Date(Date.now() + 1 * 60 * 60 * 1000)
+          : new Date(Date.now() + 24 * 60 * 60 * 1000);
 
       const booking = await Booking.create({
         user: req.user._id,
@@ -302,28 +290,23 @@ if (bookingType === "urgent") {
         date: bookingDate,
         slot,
         category: service.serviceType,
-
-        // ❗ IMPORTANT CHANGE
-        status: "pending", // ✅ provider will confirm later
+        status: "pending",
         paymentStatus: isFullPayment ? "fully_paid" : "advance_paid",
-
         totalAmount: Number(totalAmount),
         advanceAmount: Number(advanceAmount),
         paidAmount: isFullPayment
           ? Number(totalAmount)
           : Number(advanceAmount),
         remainingAmount: isFullPayment ? 0 : Number(remainingAmount),
-
         advancePaymentId: paymentIntent.id,
         paymentDeadline,
-
         commissionType,
         commissionValue,
         commissionAmount,
         providerEarning,
         bookingType,
         payoutReleaseDate,
-        payoutStatus: "pending", // 🔒 locked until provider confirms
+        payoutStatus: "pending",
         providerResponseDeadline,
         refundStatus: "none",
       });
@@ -337,7 +320,7 @@ if (bookingType === "urgent") {
     }
 
     // =====================================================
-    // 🔹 REMAINING PAYMENT (75%)
+    // 🔹 REMAINING PAYMENT → UPDATE BOOKING
     // =====================================================
     if (paymentType === "REMAINING") {
       const { bookingId } = metadata;
@@ -345,10 +328,6 @@ if (bookingType === "urgent") {
       const booking = await Booking.findById(bookingId);
       if (!booking) {
         return res.status(404).json({ message: "Booking not found" });
-      }
-
-      if (booking.status === "cancelled") {
-        return res.status(400).json({ message: "Booking is cancelled" });
       }
 
       if (booking.paymentStatus !== "advance_paid") {
@@ -361,9 +340,6 @@ if (bookingType === "urgent") {
       booking.remainingAmount = 0;
       booking.paymentStatus = "fully_paid";
       booking.remainingPaymentId = paymentIntent.id;
-
-      // ❗ DO NOT CONFIRM
-     // booking.status = "pending"; // provider action required
 
       await booking.save();
 
@@ -383,6 +359,7 @@ if (bookingType === "urgent") {
     });
   }
 };
+
 
 
 
