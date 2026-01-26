@@ -18,7 +18,6 @@ if (!admin.apps.length) {
 
 export default admin;
 
-
 /*
 import admin from "firebase-admin";
 import fs from "fs";

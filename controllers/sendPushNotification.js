@@ -2,8 +2,9 @@ import admin from "../services/firebase.js";
 import User from "../models/User.js";
 
 // Assuming you track 'activeChatWith' in MongoDB inside User or a separate collection
-export const sendMessageNotification = async (senderId, receiverId, message) => {
+export const sendMessageNotification = async (senderId, receiverId, serviceId,serviceName,message) => {
   const receiver = await User.findById(receiverId);
+  console.log("serviceId: "+serviceId)
 
   if (!receiver) return;
 
@@ -22,6 +23,8 @@ export const sendMessageNotification = async (senderId, receiverId, message) => 
       type: "chat",
       senderId,
       receiverId,
+      serviceId,
+      serviceName,
       message,
     },
   });
