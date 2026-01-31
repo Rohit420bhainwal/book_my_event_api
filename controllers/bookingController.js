@@ -795,7 +795,7 @@ export const requestWithdraw = async (req, res) => {
     const booking = await Booking.findOne({
       _id: bookingId,
       provider: providerId,
-      status: "confirmed",
+      status: "completed",
       payoutStatus: "available",
     });
 
