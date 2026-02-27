@@ -12,8 +12,8 @@ import { withdrawBookingAmount } from "../controllers/bookingWithdrawController.
 import { getProviderEarningsSummary } from "../controllers/providerDashboardController.js";
 
 const router = express.Router();
-router.post("/payment-intent", protect, createPaymentIntent); 
-router.post("/confirm", protect, confirmBooking);
+//router.post("/payment-intent", protect, createPaymentIntent); 
+//router.post("/confirm", protect, confirmBooking);
 
 router.post("/", protect, createBooking);                  // Customer creates booking
 router.get("/me", protect, getMyBookings);                // Customer views own bookings

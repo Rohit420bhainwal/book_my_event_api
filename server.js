@@ -65,8 +65,8 @@ app.use("/api", uploadRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/withdraw", withdrawRoutes);
 app.use("/api/admin", adminRoutes);
-app.use("/api/payment", paymentRoutes);
-app.use("/api/provider/stripe", providerStripeRoutes);
+//app.use("/api/payment", paymentRoutes);
+//app.use("/api/provider/stripe", providerStripeRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/availability",availabilityRoutes);
 app.use("/api/provider", providerAvailabilityRoutes);
@@ -78,7 +78,7 @@ app.get("/test", (req, res) => {
   res.send("✅ API is working fine!");
 });
 
-app.use("/api/stripe", stripeWebhookRoutes);
+//app.use("/api/stripe", stripeWebhookRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));

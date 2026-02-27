@@ -387,85 +387,108 @@ export const createBooking = async (req, res) => {
       return res.status(403).json({ message: "Only customers can create bookings" });
     }
 
-    const { providerId, serviceId, date, paymentId } = req.body;
+    const { providerId, serviceId, date, slot } = req.body;
 
-    // Validate provider
+    if (!providerId || !serviceId || !date || !slot) {
+      return res.status(400).json({
+        message: "providerId, serviceId, date and slot are required",
+      });
+    }
+
     const provider = await User.findById(providerId);
     if (!provider || provider.role !== "provider") {
       return res.status(404).json({ message: "Provider not found" });
     }
 
-    // Find selected service from providerInfo.services
     const service = provider.providerInfo?.services?.find(
       (s) => s._id.toString() === serviceId
     );
+
     if (!service) {
-      return res.status(404).json({ message: "Service not found for this provider" });
+      return res.status(404).json({ message: "Service not found" });
     }
 
-    // 👉 Step 1: Load app commission settings
+    const isSlotAvailable = await checkSlotAvailability({
+      serviceId,
+      date,
+      slot,
+    });
+
+    if (!isSlotAvailable) {
+      return res.status(409).json({
+        message: "Selected slot is not available",
+      });
+    }
+
+    // ==============================
+    // 💰 COMMISSION CALCULATION
+    // ==============================
     const settings = await Settings.findOne({ key: "commission" });
+
     const commissionType = settings?.commissionType || "percentage";
     const commissionValue = settings?.commissionValue || 15;
 
-    const bookingAmount = service.price;
-    let commissionAmount = 0;
+    const totalAmount = service.price;
 
-    // 👉 Step 2: Calculate commission
-    if (commissionType === "percentage") {
-      commissionAmount = (bookingAmount * commissionValue) / 100;
-    } else if (commissionType === "fixed") {
-      commissionAmount = commissionValue;
-    }
+    let commissionAmount =
+      commissionType === "percentage"
+        ? (totalAmount * commissionValue) / 100
+        : commissionValue;
 
-    // 👉 Step 3: Provider earning
-    const providerEarning = bookingAmount - commissionAmount;
+    const providerEarning = totalAmount - commissionAmount;
 
     const bookingDate = new Date(date);
     bookingDate.setHours(0, 0, 0, 0);
-    
+
     const today = new Date();
-today.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
 
-const diffDays = Math.ceil(
-  (bookingDate - today) / (1000 * 60 * 60 * 24)
-);
+    const diffDays = Math.ceil(
+      (bookingDate - today) / (1000 * 60 * 60 * 24)
+    );
 
-const bookingType = diffDays <= 2 ? "urgent" : "regular";
+    const bookingType = diffDays <= 2 ? "urgent" : "regular";
 
-let payoutReleaseDate;
-let payoutStatus = "pending";
+    const payoutReleaseDate =
+      bookingType === "urgent"
+        ? today
+        : new Date(bookingDate.getTime() - 24 * 60 * 60 * 1000);
 
-if (bookingType === "urgent") {
-  payoutReleaseDate = today;
-  payoutStatus = "available";
-} else {
-  payoutReleaseDate = new Date(bookingDate);
-  payoutReleaseDate.setDate(payoutReleaseDate.getDate() - 1);
-}
+    const providerResponseDeadline =
+      bookingType === "urgent"
+        ? new Date(Date.now() + 1 * 60 * 60 * 1000)
+        : new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-const booking = await Booking.create({
-  user: req.user._id,
-  provider: providerId,
-  service: serviceId,
-  date: bookingDate,
-  category: service.serviceType,
-  paymentId,
+    const booking = await Booking.create({
+      user: req.user._id,
+      provider: providerId,
+      service: serviceId,
+      date: bookingDate,
+      slot,
+      category: service.serviceType,
 
-  bookingAmount,
-  commissionType,
-  commissionValue,
-  commissionAmount,
-  providerEarning,
+      status: "pending",
 
-  bookingType,
-  payoutReleaseDate,
-  payoutStatus,
-});
+      // 💳 Mark as fully paid (since no gateway now)
+      paymentStatus: "fully_paid",
+      totalAmount,
+      advanceAmount: totalAmount,
+      paidAmount: totalAmount,
+      remainingAmount: 0,
 
+      commissionType,
+      commissionValue,
+      commissionAmount,
+      providerEarning,
+
+      bookingType,
+      payoutReleaseDate,
+      payoutStatus: "pending",
+      providerResponseDeadline,
+    });
 
     res.status(201).json({
-      message: "Booking created with commission applied",
+      message: "Booking created successfully",
       booking,
     });
   } catch (error) {
@@ -473,7 +496,6 @@ const booking = await Booking.create({
     res.status(500).json({ message: "Server error", error });
   }
 };
-
 // Get bookings of logged-in customer
 export const getMyBookings = async (req, res) => {
   try {
