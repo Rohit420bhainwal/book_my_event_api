@@ -21,37 +21,71 @@ const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString()
 // ----------------------------
 // Configure nodemailer
 // ----------------------------
-const sendEmailOtp = async (email, otp) => {
-  const transporter = nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 465, // or 587
-    secure: true, 
-    service: "gmail",
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-    connectionTimeout: 10000,
-  });
+// const sendEmailOtp = async (email, otp) => {
+//   const transporter = nodemailer.createTransport({
+//     host: "smtp.gmail.com",
+//     port: 465, // or 587
+//     secure: true, 
+//     service: "gmail",
+//     auth: {
+//       user: process.env.EMAIL_USER,
+//       pass: process.env.EMAIL_PASS,
+//     },
+//     connectionTimeout: 10000,
+//   });
 
-  await transporter.sendMail({
-    from: process.env.EMAIL_USER,
-    to: email,
-    subject: "Your OTP Code",
-    text: `Your OTP code is ${otp}. It will expire in 10 minutes.`,
-  });
+//   await transporter.sendMail({
+//     from: process.env.EMAIL_USER,
+//     to: email,
+//     subject: "Your OTP Code",
+//     text: `Your OTP code is ${otp}. It will expire in 10 minutes.`,
+//   });
+// };
+
+
+const sendEmailOtp = async (email, otp) => {
+  try {
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      }
+    });
+
+    const info = await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: "Your OTP Code",
+      text: `Your OTP code is ${otp}`,
+    });
+
+    console.log("Email sent:", info.response);
+  } catch (error) {
+    console.error("Email error:", error);
+  }
 };
 
 // ----------------------------
 // Configure Twilio for SMS
 // ----------------------------
 const sendSmsOtp = async (phone, otp) => {
-  const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
-  await client.messages.create({
-    body: `Your OTP code is ${otp}. It will expire in 10 minutes.`,
-    from: process.env.TWILIO_PHONE_NUMBER,
-    to: phone,
-  });
+  try {
+    const client = twilio(
+      process.env.TWILIO_ACCOUNT_SID,
+      process.env.TWILIO_AUTH_TOKEN
+    );
+
+    await client.messages.create({
+      body: `BookMyEvent: Your verification code is ${otp}. It is valid for 10 minutes. Do not share this code with anyone.`,
+      from: process.env.TWILIO_PHONE_NUMBER,
+      to: phone, // example: +971501234567
+    });
+
+    console.log("SMS OTP sent to:", phone);
+  } catch (error) {
+    console.error("Twilio SMS Error:", error);
+  }
 };
 
 
@@ -91,21 +125,34 @@ const saveFileForUser = (userId, buffer, originalName) => {
 // ----------------------------
 export const sendOtp = async (req, res) => {
   try {
-    const { input, method, phone, password, name } = req.body;
+    const { input, method, phone, password, name ,email} = req.body;
 
-    if (!input || !method) {
+    // if (!input || !method) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: "Input and method required",
+    //   });
+    // }
+    
+
+    if (!phone) {
       return res.status(400).json({
         success: false,
-        message: "Input and method required",
+        message: "Phone number required",
       });
     }
 
-    let user =
-      method === "email"
-        ? await User.findOne({ email: input })
-        : await User.findOne({ phone: input });
 
-    const otp = "123456"; // static for testing
+    // let user =
+    //   method === "email"
+    //     ? await User.findOne({ email: input })
+    //     : await User.findOne({ phone: input });
+        
+
+    let user = await User.findOne({ email });
+
+    //const otp = "123456"; // static for testing
+    const otp = generateOtp();
     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
 
     // -----------------------------------------
@@ -114,8 +161,10 @@ export const sendOtp = async (req, res) => {
     if (!user) {
       const newUser = new User({
         name: name || "",
-        email: method === "email" ? input : undefined,
-        phone: method === "phone" ? input : phone,
+        email,
+        phone,
+        // email: method === "email" ? input : undefined,
+        // phone: method === "phone" ? input : phone,
         password: method === "email" ? await bcrypt.hash(password, 10) : undefined,
         otp,
         otpExpiresAt: otpExpiry,
@@ -145,7 +194,18 @@ export const sendOtp = async (req, res) => {
       await user.save();
     }
 
-    console.log(`OTP for ${input}: ${otp}`);
+    
+
+    if (method === "email") {
+      //await sendEmailOtp(input, otp);
+      await sendEmailOtp(email, otp);
+    }
+
+    if (method === "phone") {
+     // await sendSmsOtp(input, otp);
+    }
+
+    console.log(`OTP for ${email}: ${otp}`);
 
     res.json({
       success: true,
@@ -217,11 +277,11 @@ export const setRole = async (req, res) => {
 
 export const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
-    if (!email || !password)
+    const { phone, password } = req.body;
+    if (!phone || !password)
       return res.status(400).json({ message: "Provide email and password" });
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ phone });
     if (!user) return res.status(404).json({ message: "User not found" });
 
     // 🔥 Restrict ADMIN login from this API
@@ -265,6 +325,57 @@ export const login = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+
+// export const login = async (req, res) => {
+//   try {
+//     const { email, password } = req.body;
+//     if (!email || !password)
+//       return res.status(400).json({ message: "Provide email and password" });
+
+//     const user = await User.findOne({ email });
+//     if (!user) return res.status(404).json({ message: "User not found" });
+
+//     // 🔥 Restrict ADMIN login from this API
+//     if (user.role === "admin") {
+//       return res.status(400).json({ message: "Invalid username or password" });
+//     }
+
+//     const isMatch = await bcrypt.compare(password, user.password);
+//     if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
+
+//     // ✅ Existing JWT (unchanged)
+//     const token = jwt.sign(
+//       { id: user._id, role: user.role },
+//       process.env.JWT_SECRET,
+//       { expiresIn: "7d" }
+//     );
+
+//     // 🔐 NEW: Firebase Custom Token
+//     const firebaseToken = await admin
+//       .auth()
+//       .createCustomToken(user._id.toString(), {
+//         role: user.role,
+//       });
+
+//     res.json({
+//       message: "Login successful",
+//       token, // backend JWT
+//       firebaseToken, // 👈 IMPORTANT (new)
+//       user: {
+//         id: user._id,
+//         name: user.name,
+//         email: user.email,
+//         role: user.role,
+//         phone: user.phone,
+//         city: user.city,
+//       },
+//       providerInfo: user.providerInfo,
+//     });
+//   } catch (error) {
+//     console.error("Login Error:", error);
+//     res.status(500).json({ message: "Server error" });
+//   }
+// };
 
 
 export const updateFcmToken = async (req, res) => {
