@@ -275,64 +275,13 @@ export const setRole = async (req, res) => {
 // LOGIN
 // ----------------------------
 
-export const login = async (req, res) => {
-  try {
-    const { phone, password } = req.body;
-    if (!phone || !password)
-      return res.status(400).json({ message: "Provide email and password" });
-
-    const user = await User.findOne({ phone });
-    if (!user) return res.status(404).json({ message: "User not found" });
-
-    // 🔥 Restrict ADMIN login from this API
-    if (user.role === "admin") {
-      return res.status(400).json({ message: "Invalid username or password" });
-    }
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
-
-    // ✅ Existing JWT (unchanged)
-    const token = jwt.sign(
-      { id: user._id, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
-    // 🔐 NEW: Firebase Custom Token
-    const firebaseToken = await admin
-      .auth()
-      .createCustomToken(user._id.toString(), {
-        role: user.role,
-      });
-
-    res.json({
-      message: "Login successful",
-      token, // backend JWT
-      firebaseToken, // 👈 IMPORTANT (new)
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        phone: user.phone,
-        city: user.city,
-      },
-      providerInfo: user.providerInfo,
-    });
-  } catch (error) {
-    console.error("Login Error:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-};
-
 // export const login = async (req, res) => {
 //   try {
-//     const { email, password } = req.body;
-//     if (!email || !password)
+//     const { phone, password } = req.body;
+//     if (!phone || !password)
 //       return res.status(400).json({ message: "Provide email and password" });
 
-//     const user = await User.findOne({ email });
+//     const user = await User.findOne({ phone });
 //     if (!user) return res.status(404).json({ message: "User not found" });
 
 //     // 🔥 Restrict ADMIN login from this API
@@ -376,6 +325,57 @@ export const login = async (req, res) => {
 //     res.status(500).json({ message: "Server error" });
 //   }
 // };
+
+export const login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password)
+      return res.status(400).json({ message: "Provide email and password" });
+
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // 🔥 Restrict ADMIN login from this API
+    if (user.role === "admin") {
+      return res.status(400).json({ message: "Invalid username or password" });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
+
+    // ✅ Existing JWT (unchanged)
+    const token = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    // 🔐 NEW: Firebase Custom Token
+    const firebaseToken = await admin
+      .auth()
+      .createCustomToken(user._id.toString(), {
+        role: user.role,
+      });
+
+    res.json({
+      message: "Login successful",
+      token, // backend JWT
+      firebaseToken, // 👈 IMPORTANT (new)
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        phone: user.phone,
+        city: user.city,
+      },
+      providerInfo: user.providerInfo,
+    });
+  } catch (error) {
+    console.error("Login Error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
 
 
 export const updateFcmToken = async (req, res) => {
