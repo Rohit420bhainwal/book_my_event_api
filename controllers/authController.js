@@ -165,7 +165,8 @@ export const sendOtp = async (req, res) => {
         phone,
         // email: method === "email" ? input : undefined,
         // phone: method === "phone" ? input : phone,
-        password: method === "email" ? await bcrypt.hash(password, 10) : undefined,
+       // password: method === "email" ? await bcrypt.hash(password, 10) : undefined,
+       password: password ? await bcrypt.hash(password, 10) : undefined,
         otp,
         otpExpiresAt: otpExpiry,
 
@@ -198,7 +199,7 @@ export const sendOtp = async (req, res) => {
 
     if (method === "email") {
       //await sendEmailOtp(input, otp);
-      await sendEmailOtp(email, otp);
+     // await sendEmailOtp(email, otp);
     }
 
     if (method === "phone") {
